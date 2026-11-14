@@ -72,9 +72,12 @@ function App() {
 
   // Load weather when the app opens
   useEffect(() => {
-    getWeather('Ilorin')
+    const initialLoad = setTimeout(() => {
+      getWeather('Ilorin')
+    }, 0)
 
     return () => {
+      clearTimeout(initialLoad)
       // Prevent an in-flight request from updating state after unmount.
       requestId.current += 1
     }
