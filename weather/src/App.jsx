@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Search,
   MapPin,
@@ -12,8 +12,8 @@ import {
 } from 'lucide-react'
 
 function App() {
-  const [city, setCity] = useState('Ilorin')
   const [search, setSearch] = useState('')
+  const requestId = useRef(0)
   const [weather, setWeather] = useState(null)
   const [place, setPlace] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -21,49 +21,66 @@ function App() {
 
   // Get weather information from Open-Meteo
   async function getWeather(cityName) {
-    try {
-      setLoading(true)
-      setError('')
+    const activeRequestId = ++requestId.current
 
-      // Search for the city
+    try {
+      // Encode user input so spaces and special characters form a valid URL.
       const geoResponse = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${cityName}&count=1&language=en&format=json`
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=en&format=json`
       )
+
+      if (!geoResponse.ok) {
+        throw new Error('Could not search for that city. Please try again.')
+      }
 
       const geoData = await geoResponse.json()
 
-      if (!geoData.results) {
+      if (!Array.isArray(geoData.results) || geoData.results.length === 0) {
         throw new Error('City not found. Try another city.')
       }
 
       const location = geoData.results[0]
 
-      // Get the weather using the city coordinates
+      // Get the weather using the city coordinates.
       const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=7`
+        `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=7`
       )
 
       if (!response.ok) {
-        throw new Error('Could not get weather information.')
+        throw new Error('Could not get weather information. Please try again.')
       }
 
       const data = await response.json()
 
+      // Ignore older responses if the user has already searched for another city.
+      if (activeRequestId !== requestId.current) return
+
       setWeather(data)
       setPlace(location)
-      setCity(location.name)
 
     } catch (err) {
-      setError(err.message)
+      if (activeRequestId !== requestId.current) return
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
       setWeather(null)
+      setPlace(null)
     } finally {
-      setLoading(false)
+      if (activeRequestId === requestId.current) {
+        setLoading(false)
+      }
     }
   }
 
   // Load weather when the app opens
   useEffect(() => {
-    getWeather('Ilorin')
+    const initialLoad = setTimeout(() => {
+      getWeather('Ilorin')
+    }, 0)
+
+    return () => {
+      clearTimeout(initialLoad)
+      // Prevent an in-flight request from updating state after unmount.
+      requestId.current += 1
+    }
   }, [])
 
   // Search for another city
@@ -71,9 +88,27 @@ function App() {
     e.preventDefault()
 
     if (search.trim() !== '') {
+      setLoading(true)
+      setError('')
       getWeather(search.trim())
       setSearch('')
     }
+  }
+
+  // Convert Open-Meteo weather codes into readable descriptions.
+  function getWeatherDescription(code) {
+    if (code === 0) return 'Clear sky'
+    if (code === 1) return 'Mainly clear'
+    if (code === 2) return 'Partly cloudy'
+    if (code === 3) return 'Overcast'
+    if (code >= 45 && code <= 48) return 'Fog'
+    if (code >= 51 && code <= 57) return 'Drizzle'
+    if (code >= 61 && code <= 67) return 'Rain'
+    if (code >= 71 && code <= 77) return 'Snow'
+    if (code >= 80 && code <= 82) return 'Rain showers'
+    if (code >= 85 && code <= 86) return 'Snow showers'
+    if (code >= 95) return 'Thunderstorm'
+    return 'Conditions unavailable'
   }
 
   // Get a weather icon
@@ -133,6 +168,7 @@ function App() {
           >
             <input
               type="text"
+              aria-label="Search for a city"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Enter city name"
@@ -221,9 +257,9 @@ function App() {
 
                 <div>
                   <Sun className="text-orange-400 mb-2" />
-                  <p className="text-gray-500 text-sm">Weather Code</p>
+                  <p className="text-gray-500 text-sm">Conditions</p>
                   <p className="font-semibold text-gray-800">
-                    {current.weather_code}
+                    {getWeatherDescription(current.weather_code)}
                   </p>
                 </div>
 
@@ -254,7 +290,7 @@ function App() {
                     </p>
 
                     <div className="flex justify-center my-3">
-                      <CloudSun size={25} className="text-orange-400" />
+                      {getWeatherIcon(hourly.weather_code[index])}
                     </div>
 
                     <p className="font-bold text-gray-800">
