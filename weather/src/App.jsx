@@ -24,9 +24,6 @@ function App() {
     const activeRequestId = ++requestId.current
 
     try {
-      setLoading(true)
-      setError('')
-
       // Encode user input so spaces and special characters form a valid URL.
       const geoResponse = await fetch(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=en&format=json`
@@ -88,6 +85,8 @@ function App() {
     e.preventDefault()
 
     if (search.trim() !== '') {
+      setLoading(true)
+      setError('')
       getWeather(search.trim())
       setSearch('')
     }
